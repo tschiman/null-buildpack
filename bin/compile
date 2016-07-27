@@ -2,3 +2,106 @@
 # bin/compile <build-dir> <cache-dir>
 
 echo "-----> Nothing to do."
+
+Skip to content
+This repository
+Search
+Pull requests
+Issues
+Gist
+ @tschiman
+ Watch 39
+  Star 95
+  Fork 307 heroku/heroku-buildpack-java
+ Code  Issues 3  Pull requests 1  Wiki  Pulse  Graphs
+Tree: 872b75d577 Find file Copy pathheroku-buildpack-java/bin/compile
+872b75d  on Apr 17, 2013
+@jsimone jsimone update formatting of "... done" in JDK download
+6 contributors @jesperfj @sclasen @naaman @jsimone @mmcgrana @ticktock
+RawBlameHistory     Executable File  101 lines (76 sloc)  2.63 KB
+#!/usr/bin/env bash
+# bin/compile <build-dir> <cache-dir>
+
+# fail fast
+set -e
+
+logger -p user.notice -t "slugc[$$]" "language_pack_java java_compile_start"
+
+BIN_DIR=$(cd $(dirname $0); pwd) # absolute path
+# parse args
+BUILD_DIR=$1
+CACHE_DIR=$2
+LOGGER_FLAGS=""
+
+curl --silent --location http://heroku-jvm-common.s3.amazonaws.com/jvm-buildpack-common.tar.gz | tar xz
+. bin/java
+
+KEEP_M2_CACHE="true"
+
+if [ ! -d $CACHE_DIR ]; then
+  KEEP_M2_CACHE="false"
+elif [ -f $CACHE_DIR/removeM2Cache ]; then
+  KEEP_M2_CACHE="false"
+fi
+
+if [ "true" == $KEEP_M2_CACHE ]; then
+  logger -p user.notice -t "slugc[$$]" "language_pack_java retain_m2_repo"
+fi
+
+#create the cache dir if it doesn't exist
+mkdir -p $CACHE_DIR
+
+# create default system.properties 
+if [ ! -f ${BUILD_DIR}/system.properties ]; then
+  echo "java.runtime.version=1.6" > ${BUILD_DIR}/system.properties
+fi
+
+# install JDK 
+javaVersion=$(detect_java_version ${BUILD_DIR})
+echo -n "-----> Installing OpenJDK ${javaVersion}..."
+install_java ${BUILD_DIR} ${javaVersion}
+jdk_overlay ${BUILD_DIR}
+echo " done"
+
+# change to cache dir to install maven
+cd $CACHE_DIR
+
+# install maven with base repository
+MAVEN_URL="http://s3.amazonaws.com/heroku-jvm-langpack-java/maven.tar.gz"
+
+if [ ! -d .maven ]; then
+  echo -n "-----> Installing Maven 3.0.3..."
+  curl --silent --max-time 60 --location $MAVEN_URL | tar xz
+  chmod +x .maven/bin/mvn
+  echo " done"
+fi
+
+MAVEN_SETTINGS_URL="http://s3.amazonaws.com/heroku-jvm-langpack-java/settings.xml"
+
+echo -n "-----> Installing settings.xml..."
+if [ -f .m2/settings.xml ]; then
+  rm .m2/settings.xml 
+fi
+curl --silent --max-time 10 --location $MAVEN_SETTINGS_URL --output .m2/settings.xml
+echo " done"
+
+# finalize cache
+if [ "false" == $KEEP_M2_CACHE ]; then
+  touch $CACHE_DIR/removeM2Cache
+fi
+
+#copy .m2 and .maven if needed
+if [ "true" == $KEEP_M2_CACHE ]; then
+  for DIR in ".m2" ".maven" ; do
+    cp -r $CACHE_DIR/$DIR $DIR
+  done
+fi
+
+PROFILE_PATH="$BUILD_DIR/.profile.d/java.sh"
+mkdir -p $(dirname $PROFILE_PATH)
+echo 'export PATH="/app/.jdk/bin:$PATH"' >> $PROFILE_PATH
+echo 'export JAVA_TOOL_OPTIONS="$JAVA_TOOL_OPTIONS -Djava.rmi.server.useCodebaseOnly=true"' >> $PROFILE_PATH
+
+logger -p user.notice -t "slugc[$$]" "language_pack_java java_compile_end $LOGGER_FLAGS"
+Contact GitHub API Training Shop Blog About
+© 2016 GitHub, Inc. Terms Privacy Security Status Help
